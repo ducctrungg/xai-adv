@@ -15,7 +15,7 @@ def treeShap(model, dataset):
   Caculate and return shap_values for Machine Learning tree-based model
   """
   explainer = shap.TreeExplainer(model)
-  shap_values = explainer.shap_values(dataset.to_numpy())
+  shap_values = explainer.shap_values(dataset.to_numpy(), check_additivity=False)
   return shap_values
 
 def loadShap(file_path):

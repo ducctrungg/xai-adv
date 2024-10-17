@@ -20,9 +20,9 @@ from amm import AMMGenerator  # custom library
 from mlp import MLP  # custom library
 from cnn import CNN2, CNN4
 
-FILE_TRAIN = "dataset/cicids2018/train.csv"
-FILE_TEST = "dataset/cicids2018/test.csv"
-FRACTION = [0.2, 0.4, 0.6, 0.8]
+FILE_TRAIN = "dataset/train.csv"
+FILE_TEST = "dataset/test.csv"
+FRACTION = [0.2, 0.4, 0.6, 0.8, 1.0]
 
 def TE(model, x, y):
   utils.compile(model)
@@ -30,7 +30,7 @@ def TE(model, x, y):
     x, 
     y,
     epochs = 20,
-    batch_size = 128,
+    batch_size = 256,
     verbose = 2
   )
   y_pred = model.predict(x_test, verbose = 2) > 0.5
@@ -44,29 +44,27 @@ def trainMLP(df_x, df_y):
   print("\n### TRANNING MLP MODEL ###")
   mlp = MLP(input_shape)
   TE(mlp, df_x, df_y)
-  mlp.save(f"dataset/cicids2018/phase1/mlp", save_format='tf')
+  # mlp.save(f"model/atk/mlp", save_format='tf')
   return mlp
 
 def trainCNN2():
   """
   Train and return CNN 2 layers model
   """
-  (x_train, y_train) = utils.getDataFraction(FILE_TRAIN, 0.5)
   print("\n### TRANNING CNN2 MODEL ###")
   cnn2 = CNN2(input_shape)
   TE(cnn2, x_train, y_train)
-  cnn2.save('dataset/cicids2018/model/cnn_2layer', save_format='tf')
+  cnn2.save('model/ids/cnn2', save_format='tf')
   return cnn2
  
 def trainCNN4():
   """
   Train and return CNN 4 layers model
   """
-  (x_train, y_train) = utils.getDataFraction(FILE_TRAIN, 0.5)
   print("\n### TRANNING CNN4 MODEL ###")
   cnn4 = CNN4(input_shape)
   TE(cnn4, x_train, y_train)
-  cnn4.save('dataset/cicids2018/model/cnn_4layer', save_format='tf')
+  cnn4.save('model/ids/cnn4', save_format='tf')
   return cnn4
 
 def phase1():
@@ -116,26 +114,26 @@ def phase2():
     mlp = trainMLP(x_frac, y_frac)
 
     # save model
-    mlp.save(f"dataset/cicids2018/phase2/mlp_{i}", save_format='tf')
+    mlp.save(f"model/atk/mlp_{i}", save_format='tf')
 
     # calculate shap_values
     print(f"\n### PHASE 2 - CALCULATE SHAP_VALUES FOR FRACTION {i} ###")
     shap_values = explainer.calculateSHAP(mlp, x_frac)
 
     # save shap_values
-    with open(f"dataset/cicids2018/phase2/mlp_shap_{i}", "ab") as file:
-      pickle.dump(shap_values, file)
+    # with open(f"dataset/cicids2018/phase2/mlp_shap_{i}", "ab") as file:
+    #   pickle.dump(shap_values, file)
   
     # Calculate amm values
     generator = AMMGenerator()
-    shap_values = explainer.loadShap(f"dataset/cicids2018/phase2/mlp_shap_{i}")
+    # shap_values = explainer.loadShap(f"dataset/cicids2018/phase2/mlp_shap_{i}")
     result_feature = generator.AMMFeatureSelection(x_frac, shap_values[:,:,0], x_frac.columns.to_list(), trigger_size = len(x_frac.columns))
     results = {key: result_feature[key] for key in result_feature}
-    with open(f'dataset/cicids2018/phase2/amm_{i}_patch.json', 'w') as file:
+    with open(f'model/amm/mlp_{i}_patch.json', 'w') as file:
       json.dump(results, file)
 
     # Generate adversarial samples by manipulate subset of feature
-    x_amm = generator.manipulateFeature(f"dataset/cicids2018/phase2/amm_{i}_patch.json", x_test, y_test)
+    x_amm = generator.manipulateFeature(f"model/amm/{i}_patch.json", x_test, y_test)
 
     print(f"\n### PHASE 2 - EVALUATE WITH FRACTION {i} ###")
 
@@ -147,7 +145,7 @@ def phase2():
     # Evaluate CNN 2 layers and 4 layers model with adversarials
     for i in [2,4]:
       print(f"\n### PHASE 2 - MLP >< CNN {i} Layers ###")
-      cnn = tf.keras.models.load_model(f'dataset/cicids2018/model/cnn_{i}layer', compile=False)
+      cnn = tf.keras.models.load_model(f'model/ids/cnn{i}', compile=False)
       utils.compile(cnn)
       y_pred = cnn.predict(x_amm, verbose = 2) > 0.5
       utils.evaluate(y_test, y_pred)
@@ -180,29 +178,31 @@ def superFunction():
       # Calculate amm values
       generator = AMMGenerator()
       # Generate adversarial samples by manipulate subset of feature
-      x_amm = generator.manipulateFeature(f"dataset/cicids2018/phase2/amm_{i}_patch.json", x_test, y_test)
+      x_amm = generator.manipulateFeature(f"model/amm/{i}_patch.json", x_test, y_test)
 
       # Evaluate CNN 2 layers and 4 layers model with adversarials
       print(f"\n### PHASE 2 - MLP >< LightGBM ###")
-      lb = utils.loadModel("dataset/cicids2018/model/lightgbm")
+      lb = utils.loadModel("model/ids/lightgbm")
       y_pred = lb.predict(x_amm)
       utils.evaluate(y_test, y_pred)
 
       print(f"\n### PHASE 2 - MLP >< Random Forest ###")
-      rf = utils.loadModel("dataset/cicids2018/model/rf")
+      rf = utils.loadModel("model/ids/rf")
       y_pred = rf.predict(x_amm)
       utils.evaluate(y_test, y_pred)
-  phase1()
+  # phase1()
   phase2()
 
 if __name__ == '__main__':
-  (x_test, y_test) = utils.getDataFraction(FILE_TEST, 0.5)
-  superFunction()
-  # input_shape = (x_test.shape[1],)
+  (x_test, y_test) = utils.getDataFraction(FILE_TEST, 1.0)
+  input_shape = (x_test.shape[1],)
+  # (x_train, y_train) = utils.getDataFraction(FILE_TRAIN, 1.0)
   # print("\n### TRAIN + EVALUATE + SAVE MODEL CNN2 | CNN4 ###")
   # trainCNN2()
   # trainCNN4()
   # print('\n### RUN PHASE 1 ###')
   # phase1()
-  # print("\n### RUN PHASE 2 ###")
-  # phase2()
+  print("\n### RUN PHASE 2 | 0.2 -> 1.0 ###")
+  phase2()
+  superFunction()
+

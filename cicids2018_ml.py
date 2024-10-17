@@ -22,9 +22,9 @@ import explainer  # custom library
 import utils  # custom library
 from amm import AMMGenerator  # custom library
 
-FILE_TRAIN = "dataset/cicids2018/train.csv"
-FILE_TEST = "dataset/cicids2018/test.csv"
-FRACTION = [0.1, 0.2]
+FILE_TRAIN = "dataset/train.csv"
+FILE_TEST = "dataset/test.csv"
+FRACTION = [0.6, 0.8, 1.0]
 
 def trainDT():
   dt = DecisionTreeClassifier()
@@ -42,11 +42,17 @@ def trainXB():
   return xb
 
 def trainRF():
+  '''
+  IDS Random Forest model
+  '''
   rf = RandomForestClassifier()
   rf.fit(x_train, y_train)
   return rf
 
 def trainLB():
+  '''
+  IDS LightGBM model
+  '''
   lb = LGBMClassifier()
   lb.fit(x_train, y_train)
   return lb
@@ -113,32 +119,32 @@ def phase2():
       shap_values = explainer.treeShap(model, x_frac)
 
       # save shap_values
-      with open(f"dataset/cicids2018/phase2/{counter}_shap_{i}", "ab") as file:
-        pickle.dump(shap_values, file)
+      # with open(f"dataset/cicids2018/phase2/{counter}_shap_{i}", "ab") as file:
+      #   pickle.dump(shap_values, file)
   
     # Calculate amm values
     for counter in range(2):
       print(f"\n### CALCULATE AMM - {counter} ###")
       generator = AMMGenerator()
-      shap_values = explainer.loadShap(f"dataset/cicids2018/phase2/{counter}_shap_{i}")
+      # shap_values = explainer.loadShap(f"dataset/cicids2018/phase2/{counter}_shap_{i}")
       if counter == 0: 
         result_feature = generator.AMMFeatureSelection(x_frac, shap_values[:,:,0], x_frac.columns.to_list(), trigger_size = len(x_frac.columns))
       else:
         result_feature = generator.AMMFeatureSelection(x_frac, shap_values, x_frac.columns.to_list(), trigger_size = len(x_frac.columns))
     
       results = {key: result_feature[key] for key in result_feature}
-      with open(f'dataset/cicids2018/phase2/{counter}_{i}_patch.json', 'w') as file:
+      with open(f'amm/{counter}_{i}_patch.json', 'w') as file:
         json.dump(results, file)
 
       # Generate adversarial samples by manipulate subset of feature
-      x_amm = generator.manipulateFeature(f"dataset/cicids2018/phase2/{counter}_{i}_patch.json", x_test, y_test)
+      x_amm = generator.manipulateFeature(f"amm/{counter}_{i}_patch.json", x_test, y_test)
 
       print(f"\n### PHASE 2 - EVALUATE WITH FRACTION {i} ###")
 
       # Evaluate CNN 2 layers and 4 layers model with adversarials
       for temp in [2,4]:
         print(f"\n### PHASE 2 - MLP >< CNN {temp} Layers ###")
-        cnn = tf.keras.models.load_model(f'dataset/cicids2018/model/cnn_{temp}layer', compile=False)
+        cnn = tf.keras.models.load_model(f'dataset/cicids2018/model/cnn{temp}', compile=False)
         utils.compile(cnn)
         y_pred = cnn.predict(x_amm, verbose = 2) > 0.5  
         utils.evaluate(y_test, y_pred)
@@ -147,6 +153,7 @@ def phase2():
 def dtFunction():
   """
   Only use this function for surrogate model Decision Tree
+  Should use this function because ML model generate 2 test cases
   """
   def trainDTLocal(x_train, y_train):
     dt = DecisionTreeClassifier()
@@ -160,42 +167,36 @@ def dtFunction():
     print(f"\n### PHASE 2 - CALCULATE SHAP_VALUES FOR FRACTION {fraction} ###")
     shap_values = explainer.treeShap(dt, x_frac)
 
-    # save shap_values
-    with open(f"dataset/cicids2018/phase2/0_shap_{fraction}", "ab") as file:
-      pickle.dump(shap_values, file)
-
     print(f"\n### PHASE 2 - CALCULATE AMM FOR FRACTION {fraction} ###")
-    
     generator = AMMGenerator()
     # Calculate amm values
-    shap_values = explainer.loadShap(f"dataset/cicids2018/phase2/0_shap_{fraction}")
     for counter in range(2):
-      print(f"TEST CASE FOR DECISION TREE - {counter}")
+      print(f"\nTEST CASE FOR DECISION TREE - {counter}")
       result_feature = generator.AMMFeatureSelection(x_frac, shap_values[:,:,counter], x_frac.columns.to_list(), trigger_size = len(x_frac.columns))
       results = {key: result_feature[key] for key in result_feature}
-      with open(f'dataset/cicids2018/phase2/0_{fraction}_case{counter}_patch.json', 'w') as file:
+      with open(f'model/amm/dt_{fraction}_case{counter}_patch.json', 'w') as file:
         json.dump(results, file)
 
       # Generate adversarial samples by manipulate subset of feature
-      x_amm = generator.manipulateFeature(f"dataset/cicids2018/phase2/0_{fraction}_case{counter}_patch.json", x_test, y_test)
+      x_amm = generator.manipulateFeature(f"model/amm/dt_{fraction}_case{counter}_patch.json", x_test, y_test)
       print(f"\n### PHASE 2 - EVALUATE WITH FRACTION {fraction} TEST CASE {counter} ###")
 
       # # Evaluate CNN 2 layers and 4 layers model with adversarials
       for temp in [2,4]:
         print(f"\n### PHASE 2 - Decision Tree >< CNN {temp} Layers ###")
-        cnn = tf.keras.models.load_model(f'dataset/cicids2018/model/cnn_{temp}layer', compile=False)
+        cnn = tf.keras.models.load_model(f'model/ids/cnn{temp}', compile=False)
         utils.compile(cnn)
-        y_pred = cnn.predict(x_amm, verbose = 2) > 0.5  
+        y_pred = cnn.predict(x_amm, verbose = 2) > 0.5
         utils.evaluate(y_test, y_pred)
 
       # Evaluate CNN 2 layers and 4 layers model with adversarials
       print(f"\n### PHASE 2 - Decision Tree >< LightGBM ###")
-      lb = utils.loadModel("dataset/cicids2018/model/lightgbm")
+      lb = utils.loadModel("model/ids/lightgbm")
       y_pred = lb.predict(x_amm)
       utils.evaluate(y_test, y_pred)
 
       print(f"\n### PHASE 2 - Decision Tree >< Random Forest ###")
-      rf = utils.loadModel("dataset/cicids2018/model/rf")
+      rf = utils.loadModel("model/ids/rf")
       y_pred = rf.predict(x_amm)
       utils.evaluate(y_test, y_pred)
   return
@@ -221,51 +222,46 @@ def xbFunction():
     print(f"\n### PHASE 2 - CALCULATE SHAP_VALUES FOR FRACTION {fraction} ###")
     shap_values = explainer.treeShap(xb, x_frac)
 
-    # save shap_values
-    with open(f"dataset/cicids2018/phase2/xb_shap_{fraction}", "ab") as file:
-      pickle.dump(shap_values, file)
-
-    print(f"\n### PHASE 2 - CALCULATE AMM FOR FRACTION {fraction} ###")
-    
+    print(f"\n### PHASE 2 - CALCULATE AMM FOR FRACTION {fraction} ###")    
     generator = AMMGenerator()
     # Calculate amm values
-    shap_values = explainer.loadShap(f"dataset/cicids2018/phase2/xb_shap_{fraction}")
-    print(f"TEST CASE FOR XGBoost")
+    print(f"\nTEST CASE FOR XGBoost")
     result_feature = generator.AMMFeatureSelection(x_frac, shap_values, x_frac.columns.to_list(), trigger_size = len(x_frac.columns))
     results = {key: result_feature[key] for key in result_feature}
-    with open(f'dataset/cicids2018/phase2/xb_{fraction}_patch.json', 'w') as file:
+    with open(f'model/amm/xb_{fraction}_patch.json', 'w') as file:
       json.dump(results, file)
 
     # Generate adversarial samples by manipulate subset of feature
-    x_amm = generator.manipulateFeature(f"dataset/cicids2018/phase2/xb_{fraction}_patch.json", x_test, y_test)
+    x_amm = generator.manipulateFeature(f"model/amm/xb_{fraction}_patch.json", x_test, y_test)
     print(f"\n### PHASE 2 - EVALUATE WITH FRACTION {fraction} ###")
 
     # # Evaluate CNN 2 layers and 4 layers model with adversarials
     for temp in [2,4]:
       print(f"\n### PHASE 2 - XGBoost >< CNN {temp} Layers ###")
-      cnn = tf.keras.models.load_model(f'dataset/cicids2018/model/cnn_{temp}layer', compile=False)
+      cnn = tf.keras.models.load_model(f'model/ids/cnn{temp}', compile=False)
       utils.compile(cnn)
       y_pred = cnn.predict(x_amm, verbose = 2) > 0.5  
       utils.evaluate(y_test, y_pred)
 
     print(f"\n### PHASE 2 - XGBoost >< LightGBM ###")
-    lb = utils.loadModel("dataset/cicids2018/model/lightgbm")
+    lb = utils.loadModel("model/ids/lightgbm")
     y_pred = lb.predict(x_amm)
     utils.evaluate(y_test, y_pred)
 
     print(f"\n### PHASE 2 - XGBoost >< Random Forest ###")
-    rf = utils.loadModel("dataset/cicids2018/model/rf")
+    rf = utils.loadModel("model/ids/rf")
     y_pred = rf.predict(x_amm)
     utils.evaluate(y_test, y_pred)
   return
 
 if __name__ == '__main__':
-  (x_test, y_test) = utils.getDataFraction(FILE_TRAIN, 0.5) 
-  dtFunction()
-
+  (x_test, y_test) = utils.getDataFraction(FILE_TEST, 1.0) 
+  # (x_train, y_train) = utils.getDataFraction(FILE_TRAIN, 1.0) 
+  input_shape = (x_test.shape[1],)
+  
   # print("\n### Train + Test LightGBM model ###")
   # lb = trainLB()
-  # utils.saveModel(lb, "dataset/cicids2018/model/lightgbm")
+  # utils.saveModel(lb, "model/ids/lightgbm")
   # y_pred = lb.predict(x_test)
   # utils.evaluate(y_test, y_pred)
 
@@ -273,13 +269,9 @@ if __name__ == '__main__':
   # rf = trainRF()
   # y_pred = rf.predict(x_test)
   # utils.evaluate(y_test, y_pred)
-  # utils.saveModel(rf, "dataset/cicids2018/model/rf")
+  # utils.saveModel(rf, "model/ids/rf")
 
-  # input_shape = (x_test.shape[1],)
-  # print("\n### TRAIN + EVALUATE + SAVE MODEL CNN2 | CNN4 ###")
-  # trainCNN2()
-  # trainCNN4()
-  # print('\n### RUN PHASE 1 ###')
-  # phase1()
-  # print("\n### RUN PHASE 2 ###")
-  # phase2()
+  print("\n### DECISION TREE ###")
+  dtFunction()
+  print("\n### XGBOOST ###")
+  xbFunction()
